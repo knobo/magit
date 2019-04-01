@@ -49,7 +49,6 @@
 (defvar magit-process-error-message-regexps)
 (defvar magit-branch-prefer-remote-upstream)
 (defvar magit-published-branches)
-(defvar magit-diff-section-arguments)
 
 (defvar magit-tramp-process-environment nil)
 
@@ -968,7 +967,7 @@ are considered."
 (defun magit-ignore-submodules-p ()
   (cl-find-if (lambda (arg)
                 (string-prefix-p "--ignore-submodules" arg))
-              magit-diff-section-arguments))
+              magit-buffer-diff-args))
 
 ;;; Revisions and References
 
