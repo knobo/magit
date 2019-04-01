@@ -47,7 +47,6 @@
 (declare-function magit-refresh "magit-mode" ())
 (defvar magit-this-error)
 (defvar magit-process-error-message-regexps)
-(defvar magit-refresh-args) ; from `magit-mode' for `magit-current-file'
 (defvar magit-branch-prefer-remote-upstream)
 (defvar magit-published-branches)
 (defvar magit-diff-section-arguments)
@@ -918,7 +917,7 @@ Sorted from longest to shortest CYGWIN name."
   (or (magit-file-relative-name)
       (magit-file-at-point)
       (and (derived-mode-p 'magit-log-mode)
-           (car (nth 2 magit-refresh-args)))))
+           (car magit-buffer-log-files))))
 
 ;;; Predicates
 
@@ -1792,7 +1791,7 @@ and this option only controls what face is used.")
     (let ((regexp "\\(, \\|tag: \\|HEAD -> \\)")
           names)
       (if (and (derived-mode-p 'magit-log-mode)
-               (member "--simplify-by-decoration" (cadr magit-refresh-args)))
+               (member "--simplify-by-decoration" magit-buffer-log-args))
           (let ((branches (magit-list-local-branch-names))
                 (re (format "^%s/.+" (regexp-opt (magit-list-remotes)))))
             (setq names
