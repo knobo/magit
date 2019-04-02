@@ -958,7 +958,7 @@ If no DWIM context is found, nil is returned."
                       (oref parent)
                       (oref value))))))
    ((derived-mode-p 'magit-revision-mode)
-    (cons 'commit (car magit-refresh-args)))
+    (cons 'commit magit-buffer-revision))
    ((derived-mode-p 'magit-diff-mode)
     (nth 0 magit-refresh-args))
    (t
@@ -1168,6 +1168,9 @@ for a revision."
     (unless (magit-commit-p rev)
       (user-error "%s is not a commit" rev))
     (magit-revision-setup-buffer rev args files)))
+
+(cl-defmethod magit-buffer-value (&context (major-mode magit-revision-mode))
+  (cons magit-buffer-range magit-buffer-diff-files))
 
 ;;;; Setting commands
 
@@ -2124,40 +2127,43 @@ Staging and applying changes is documented in info node
               'magit-bookmark--revision-make-record))
 
 (defun magit-revision-setup-buffer (rev args files)
-  (magit-mode-setup #'magit-revision-mode rev nil args files))
+  (magit-setup-buffer #'magit-revision-mode nil
+    (magit-buffer-revision rev)
+    (magit-buffer-revision-hash (magit-rev-parse magit-buffer-revision))
+    (magit-buffer-range (format "%s^..%s" rev rev))
+    (magit-buffer-diff-args args)
+    (magit-buffer-diff-files files)))
 
-(defun magit-revision-refresh-buffer (rev __const _args files)
+(defun magit-revision-refresh-buffer ()
   (magit-set-header-line-format
-   (concat (capitalize (magit-object-type rev))
-           " "
-           rev
-           (pcase (length files)
+   (concat (capitalize (magit-object-type magit-buffer-revision))
+           " "  magit-buffer-revision
+           (pcase (length magit-buffer-diff-files)
              (0)
-             (1 (concat " limited to file " (car files)))
+             (1 (concat " limited to file " (car magit-buffer-diff-files)))
              (_ (concat " limited to files "
-                        (mapconcat #'identity files ", "))))))
-  (setq magit-buffer-revision-hash (magit-rev-parse rev))
+                        (mapconcat #'identity magit-buffer-diff-files ", "))))))
   (magit-insert-section (commitbuf)
-    (magit-run-section-hook 'magit-revision-sections-hook rev)))
+    (magit-run-section-hook 'magit-revision-sections-hook)))
 
 (cl-defmethod magit-buffer-value (&context (major-mode magit-revision-mode))
-  (pcase-let ((`(,rev ,_const ,_args ,files) magit-revision-args))
-    (if files (cons rev files) (list rev))))
+  (cons magit-buffer-revision magit-buffer-diff-files))
 
-(defun magit-insert-revision-diff (rev)
+(defun magit-insert-revision-diff ()
   "Insert the diff into this `magit-revision-mode' buffer."
   (magit--insert-diff
     "show" "-p" "--cc" "--format=" "--no-prefix"
-    (and (member "--stat" (nth 2 magit-refresh-args)) "--numstat")
-    (nth 2 magit-refresh-args) (concat rev "^{commit}") "--"
-    (nth 3 magit-refresh-args)))
+    (and (member "--stat" magit-buffer-diff-args) "--numstat")
+    magit-buffer-diff-args
+    (concat magit-buffer-revision "^{commit}")
+    "--" magit-buffer-diff-files))
 
-(defun magit-insert-revision-tag (rev)
+(defun magit-insert-revision-tag ()
   "Insert tag message and headers into a revision buffer.
 This function only inserts anything when `magit-show-commit' is
 called with a tag as argument, when that is called with a commit
 or a ref which is not a branch, then it inserts nothing."
-  (when (equal (magit-object-type rev) "tag")
+  (when (equal (magit-object-type magit-buffer-revision) "tag")
     (magit-insert-section (taginfo)
       (let ((beg (point)))
         ;; "git verify-tag -v" would output what we need, but the gpg
@@ -2167,7 +2173,7 @@ or a ref which is not a branch, then it inserts nothing."
         ;; instead, which inserts the signature instead of verifying
         ;; it.  We remove that later and then insert the verification
         ;; output using "git verify-tag" (without the "-v").
-        (magit-git-insert "cat-file" "tag" rev)
+        (magit-git-insert "cat-file" "tag" magit-buffer-revision)
         (goto-char beg)
         (forward-line 3)
         (delete-region beg (point)))
@@ -2184,7 +2190,8 @@ or a ref which is not a branch, then it inserts nothing."
               (re-search-forward "-----END PGP SIGNATURE-----")
               (delete-region beg (point)))
             (insert ?\n)
-            (process-file magit-git-executable nil t nil "verify-tag" rev))
+            (process-file magit-git-executable nil t nil
+                          "verify-tag" magit-buffer-revision))
         (goto-char (point-max)))
       (insert ?\n))))
 
@@ -2194,11 +2201,12 @@ or a ref which is not a branch, then it inserts nothing."
     map)
   "Keymap for `commit-message' sections.")
 
-(defun magit-insert-revision-message (rev)
+(defun magit-insert-revision-message ()
   "Insert the commit message into a revision buffer."
   (magit-insert-section section (commit-message)
     (oset section heading-highlight-face 'magit-diff-hunk-heading-highlight)
-    (let ((beg (point)))
+    (let ((beg (point))
+          (rev magit-buffer-revision))
       (insert (save-excursion ; The risky var query can move point.
                 (with-temp-buffer
                   (magit-rev-insert-format "%B" rev)
@@ -2257,14 +2265,15 @@ or a ref which is not a branch, then it inserts nothing."
                    'magit-keyword))))))
         (goto-char (point-max))))))
 
-(defun magit-insert-revision-notes (rev)
+(defun magit-insert-revision-notes ()
   "Insert commit notes into a revision buffer."
   (let* ((var "core.notesRef")
          (def (or (magit-get var) "refs/notes/commits")))
     (dolist (ref (or (magit-list-active-notes-refs)))
       (magit-insert-section section (notes ref (not (equal ref def)))
         (oset section heading-highlight-face 'magit-diff-hunk-heading-highlight)
-        (let ((beg (point)))
+        (let ((beg (point))
+              (rev magit-buffer-revision))
           (insert (with-temp-buffer
                     (magit-git-insert "-c" (concat "core.notesRef=" ref)
                                       "notes" "show" rev)
@@ -2293,19 +2302,21 @@ or a ref which is not a branch, then it inserts nothing."
     (font-lock-ensure))
   (buffer-string))
 
-(defun magit-insert-revision-headers (rev)
+(defun magit-insert-revision-headers ()
   "Insert headers about the commit into a revision buffer."
   (magit-insert-section (headers)
-    (--when-let (magit-rev-format "%D" rev "--decorate=full")
+    (--when-let (magit-rev-format "%D" magit-buffer-revision "--decorate=full")
       (insert (magit-format-ref-labels it) ?\s))
-    (insert (propertize (magit-rev-parse (concat rev "^{commit}"))
-                        'face 'magit-hash))
+    (insert (propertize
+             (magit-rev-parse (concat magit-buffer-revision "^{commit}"))
+             'face 'magit-hash))
     (magit-insert-heading)
     (let ((beg (point)))
-      (magit-rev-insert-format magit-revision-headers-format rev)
-      (magit-insert-revision-gravatars rev beg))
+      (magit-rev-insert-format magit-revision-headers-format
+                               magit-buffer-revision)
+      (magit-insert-revision-gravatars magit-buffer-revision beg))
     (when magit-revision-insert-related-refs
-      (dolist (parent (magit-commit-parents rev))
+      (dolist (parent (magit-commit-parents magit-buffer-revision))
         (magit-insert-section (commit parent)
           (let ((line (magit-rev-format "%h %s" parent)))
             (string-match "^\\([^ ]+\\) \\(.*\\)" line)
@@ -2314,12 +2325,12 @@ or a ref which is not a branch, then it inserts nothing."
               (insert (propertize hash 'face 'magit-hash))
               (insert " " msg "\n")))))
       (magit--insert-related-refs
-       rev "--merged" "Merged"
+       magit-buffer-revision "--merged" "Merged"
        (eq magit-revision-insert-related-refs 'all))
       (magit--insert-related-refs
-       rev "--contains" "Contained"
+       magit-buffer-revision "--contains" "Contained"
        (eq magit-revision-insert-related-refs '(all mixed)))
-      (when-let ((follows (magit-get-current-tag rev t)))
+      (when-let ((follows (magit-get-current-tag magit-buffer-revision t)))
         (let ((tag (car  follows))
               (cnt (cadr follows)))
           (magit-insert-section (tag tag)
@@ -2327,7 +2338,7 @@ or a ref which is not a branch, then it inserts nothing."
                             (propertize tag 'face 'magit-tag)
                             (propertize (number-to-string cnt)
                                         'face 'magit-branch-local))))))
-      (when-let ((precedes (magit-get-next-tag rev t)))
+      (when-let ((precedes (magit-get-next-tag magit-buffer-revision t)))
         (let ((tag (car  precedes))
               (cnt (cadr precedes)))
           (magit-insert-section (tag tag)
@@ -2392,7 +2403,7 @@ or a ref which is not a branch, then it inserts nothing."
           ;; The buffer might display another revision by now or
           ;; it might have been refreshed, in which case another
           ;; process might already have inserted the image.
-          (when (and (equal rev (car magit-refresh-args))
+          (when (and (equal rev magit-buffer-revision)
                      (not (eq (car-safe
                                (car-safe
                                 (get-text-property (point) 'display)))
