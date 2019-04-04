@@ -2420,20 +2420,22 @@ or a ref which is not a branch, then it inserts nothing."
   (hack-dir-local-variables-non-file-buffer))
 
 (defun magit-merge-preview-setup-buffer (rev)
-  (magit-mode-setup #'magit-merge-preview-mode rev))
+  (magit-setup-buffer #'magit-merge-preview-mode nil
+    (magit-buffer-revision rev)))
 
-(defun magit-merge-preview-refresh-buffer (rev)
+(defun magit-merge-preview-refresh-buffer ()
   (let* ((branch (magit-get-current-branch))
          (head (or branch (magit-rev-verify "HEAD"))))
     (magit-set-header-line-format (format "Preview merge of %s into %s"
-                                          rev
+                                          magit-buffer-revision
                                           (or branch "HEAD")))
     (magit-insert-section (diffbuf)
       (magit--insert-diff
-        "merge-tree" (magit-git-string "merge-base" head rev) head rev))))
+        "merge-tree" (magit-git-string "merge-base" head magit-buffer-revision)
+        head magit-buffer-revision))))
 
 (cl-defmethod magit-buffer-value (&context (major-mode magit-merge-preview-mode))
-  (car magit-refresh-args))
+  magit-buffer-revision)
 
 ;;; Diff Sections
 
