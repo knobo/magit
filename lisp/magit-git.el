@@ -50,6 +50,13 @@
 (defvar magit-branch-prefer-remote-upstream)
 (defvar magit-published-branches)
 
+(defvar magit-buffer-diff-args)
+(defvar magit-buffer-file-name)
+(defvar magit-buffer-log-args)
+(defvar magit-buffer-log-files)
+(defvar magit-buffer-refname)
+(defvar magit-buffer-revision)
+
 (defvar magit-tramp-process-environment nil)
 
 ;;; Options
